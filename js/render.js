@@ -151,13 +151,19 @@ const Render = {
         text: (g ? g.no + '-' : '') + (dk.no || (i + 1)),
       }));
 
-      // 사전 자리 정하기 모드일 때 보이는 이름
+      // 사전 자리 정하기 모드일 때 보이는 이름.
+      // 그 학생의 성별이 이 자리와 다르면 눈에 띄게 표시합니다 (막지는 않습니다)
       const sid = State.data.preset[dk.id];
       const stu = sid ? State.student(sid) : null;
+      const want = State.deskSex(dk);
+      const odd = stu && want && (stu.sex === 'g' ? 'g' : 'b') !== want;
       node.appendChild(el('div', {
-        class: 'desk-preset' + (stu ? '' : ' empty'),
+        class: 'desk-preset' + (stu ? '' : ' empty') + (odd ? ' bad' : ''),
         text: stu ? stu.name : '비어 있음',
       }));
+
+      // 남자 자리 · 여자 자리 딱지 (내용은 paintDeskSex() 가 정합니다)
+      node.appendChild(el('div', { class: 'sex-no' }));
 
       // 알에 붙는 자리 번호 (내용과 표시 여부는 seatNumbers() 가 정합니다)
       const badge = el('div', { class: 'seat-no' });
@@ -167,9 +173,47 @@ const Render = {
 
       layer.appendChild(node);
       this.deskNodes[dk.id] = node;
+      this.paintDeskSex(dk.id);
     });
 
     this.applyEditVisuals();
+  },
+
+  /* ============================================================
+     남자 자리 · 여자 자리 표시
+     ------------------------------------------------------------
+     책상 하나만 다시 칠합니다. 편집 중에 책상을 연달아 누를 때
+     교실 전체를 다시 그리면 눈에 띄게 버벅이기 때문입니다.
+     ============================================================ */
+  paintDeskSex(deskId) {
+    const node = this.deskNodes && this.deskNodes[deskId];
+    if (!node) return;
+    const want = State.deskSex(State.desk(deskId));
+
+    node.classList.toggle('sex-b', want === 'b');
+    node.classList.toggle('sex-g', want === 'g');
+
+    // 보일지 말지는 CSS(body.show-sex)가 정합니다. 여기서는 내용만 씁니다.
+    const badge = node.querySelector('.sex-no');
+    if (badge) badge.textContent = want === 'g' ? '여' : '남';
+  },
+
+  /**
+   * 남·여 색과 딱지를 보여 줄지 정합니다.
+   *
+   * 평소 교실 화면에서는 **감춥니다.** 책상이 알록달록하면 알과 이름표가 묻히고,
+   * 아이들에게 굳이 알릴 정보도 아니기 때문입니다.
+   * 배정 규칙은 색이 보이든 안 보이든 똑같이 지켜집니다.
+   */
+  applySexVisible() {
+    const always = CONFIG.deskSex && CONFIG.deskSex.showAlways;
+    document.body.classList.toggle('show-sex', !!Editor.mode || !!always);
+  },
+
+  /** 모든 책상의 남·여 딱지를 다시 칠합니다 (편집 모드가 바뀔 때) */
+  paintAllSex() {
+    if (!this.deskNodes) return;
+    for (const id in this.deskNodes) this.paintDeskSex(id);
   },
 
   /* ============================================================
@@ -209,6 +253,8 @@ const Render = {
     const mode = Editor.mode;   // null | 'layout' | 'preset'
     $$('.desk-no').forEach(n => n.style.display = mode === 'layout' ? '' : 'none');
     $$('.desk-preset').forEach(n => n.style.display = mode === 'preset' ? '' : 'none');
+    this.applySexVisible();
+    this.paintAllSex();
     this.seatNumbers();
   },
 
