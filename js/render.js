@@ -64,10 +64,83 @@ const Render = {
 
     this.grid();
     this.room();
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty('--nametag-size', this.nametagSize() + 'px');
+    rootStyle.setProperty('--nametag-w', this.nametagWidth() + 'px');
     this.groups();
     this.desks();
     this.cards_();
     View.applyZoom();
+  },
+
+  /** 이름표 글씨 크기 — 「책상 크기」 단계만큼 커집니다 */
+  nametagSize() {
+    const base = (CONFIG.nametag && CONFIG.nametag.fontSize) || 28;
+    return Math.round(base * State.nameMul());
+  },
+
+  /**
+   * 한글 한 글자의 «실제» 폭. 숫자로 못 박지 않고 한 번 재서 기억합니다.
+   *
+   * ⚠️ 두 가지를 조심해야 합니다.
+   *   ① **진짜 이름표와 똑같은 것**을 재야 합니다. 손으로 style 을 흉내 내면
+   *      글꼴 이름 하나만 어긋나도 엉뚱한 값이 나옵니다.
+   *   ② **`offsetWidth` 로 잽니다.** `getBoundingClientRect()` 는 교실 배율(scale)이
+   *      곱해진 «화면» 크기라 100% 가 아닐 때 틀립니다.
+   * 글꼴이 늦게 내려오면 값이 달라지므로 main.js 가 다 받은 뒤 다시 그립니다.
+   */
+  charWidth(fs) {
+    if (this._cw && this._cw.fs === fs) return this._cw.w;
+    const tag = el('div', { class: 'nametag', text: '가나다' });
+    Object.assign(tag.style, { width: 'auto', fontSize: fs + 'px' });
+    const host = el('div', { class: 'card' }, el('div', { class: 'card-in' }, tag));
+    Object.assign(host.style, { visibility: 'hidden', left: '-9999px', top: '0' });
+    /* 🩸 «화면에 안 붙은 곳» 에 두면 안 됩니다.
+       예전에 #cardLayer 안에 넣었다가 크게 당했습니다 —
+       교실 편집 중에는 `body.editing #cardLayer{display:none}` 이라
+       재 보면 폭이 0 이 나오고, 그 값이 그대로 캐시에 남아
+       **이름표 칸이 0px 이 되어 글씨가 잘려 나갔습니다.**
+       (책상 크기를 한 번 바꾸면 이름이 «ㄴ» 같은 조각으로 보였습니다)
+       그래서 body 에 붙여 잽니다. `.card .nametag` 선택자는 어디에 있든 먹습니다. */
+    document.body.appendChild(host);
+    const w = (tag.offsetWidth - 38) / 3;   // 38 = 좌우 여백 30 + 테두리 8
+    host.remove();
+    // 말이 안 되는 값(숨겨져서 0 이 나온 경우 등)은 «기억하지 않고» 글씨 크기로 갈음합니다
+    if (!(w > 0)) return fs;
+    this._cw = { fs, w };
+    return w;
+  },
+
+  /**
+   * 이름표 «칸» 의 가로 크기 — 이름이 길든 짧든 늘 같습니다.
+   *
+   *   ① 세 글자가 들어가는 크기 (가장 흔한 길이. 한글 한 글자 = 글씨 크기 × 1)
+   *   ② 옆 자리 딱지와 부딪히지 않는 크기
+   *   둘 중 «작은 쪽» 을 씁니다.
+   *
+   * ②가 없으면 3단계에서 딱지가 옆 자리를 13px 씩 덮습니다.
+   * (책상 사이 거리는 (책상폭+12)×배율 이고, 그림자가 4px 이라 8px 까지는 겹쳐 보이지 않습니다)
+   */
+  nametagWidth() {
+    const fs = this.nametagSize();
+    const natural = Math.ceil(this.charWidth(fs) * 3) + 38;   // 여백 30 + 테두리 8
+    const room = Math.round((CONFIG.desk.width + 12) * State.deskMul()) + 8;
+    // 아무리 좁아도 두 글자는 들어가야 합니다 (재기가 잘못돼도 글씨가 잘리지 않게)
+    return Math.max(fs * 2 + 38, Math.min(natural, room));
+  },
+
+  /**
+   * 이 이름에 쓸 글씨 크기 — «그 칸에 들어가는 만큼» 입니다.
+   * 세 글자까지는 대개 기본 크기 그대로, 네 글자부터는 줄어듭니다.
+   * 이름마다 칸 크기가 달라지면 교실이 들쭉날쭉해 보이고,
+   * 긴 이름은 옆 자리 딱지를 덮어 버립니다.
+   */
+  nametagFont(name) {
+    const base = this.nametagSize();
+    const n = Math.max(1, [...String(name || '').trim()].length);
+    const inner = this.nametagWidth() - 38;                  // 글자가 들어갈 폭
+    const fit = Math.floor((inner + 2) * base / (this.charWidth(base) * n));
+    return Math.max(11, Math.min(base, fit));
   },
 
   /* ---------------- 격자 ---------------- */
@@ -88,8 +161,9 @@ const Render = {
     const d = State.data;
 
     const board = el('div', { class: 'board', 'data-kind': 'board', text: '칠 판' });
+    const bp = View.place(d.board.x, d.board.y, d.board.w, d.board.h);
     Object.assign(board.style, {
-      left: d.board.x + 'px', top: d.board.y + 'px',
+      left: bp.x + 'px', top: bp.y + 'px',
       width: d.board.w + 'px', height: d.board.h + 'px',
       fontSize: Math.round(d.board.h * 0.42) + 'px',
     });
@@ -97,8 +171,9 @@ const Render = {
 
     d.lockers.forEach(lk => {
       const n = el('div', { class: 'locker', 'data-kind': 'locker', 'data-id': lk.id, text: '사 물 함' });
+      const p = View.place(lk.x, lk.y, lk.w, lk.h);
       Object.assign(n.style, {
-        left: lk.x + 'px', top: lk.y + 'px',
+        left: p.x + 'px', top: p.y + 'px',
         width: lk.w + 'px', height: lk.h + 'px',
         fontSize: Math.round(lk.h * 0.4) + 'px', letterSpacing: '4px',
       });
@@ -115,16 +190,18 @@ const Render = {
       if (!box) return;
 
       const zone = el('div', { class: 'group-zone', 'data-kind': 'zone', 'data-id': g.id });
+      const bp = View.place(box.x, box.y, box.w, box.h);
       Object.assign(zone.style, {
-        left: box.x + 'px', top: box.y + 'px',
+        left: bp.x + 'px', top: bp.y + 'px',
         width: box.w + 'px', height: box.h + 'px',
         borderColor: g.color, backgroundColor: g.color + '14', color: g.color,
       });
       layer.appendChild(zone);
 
       const tag = el('div', { class: 'group-tag', 'data-kind': 'group', 'data-id': g.id, text: g.name });
+      // 이름표는 뒤집어도 «화면 기준 위쪽» 에 둡니다 (아래에 붙으면 옆 모둠과 겹칩니다)
       Object.assign(tag.style, {
-        left: box.x + 'px', top: (box.y - 36) + 'px', backgroundColor: g.color,
+        left: bp.x + 'px', top: (bp.y - 36) + 'px', backgroundColor: g.color,
       });
       layer.appendChild(tag);
     });
@@ -135,13 +212,14 @@ const Render = {
     const layer = $('#deskLayer');
     layer.innerHTML = '';
     this.deskNodes = {};          // 책상id -> 화면 요소 (자리 번호를 켜고 끌 때 씁니다)
-    const dw = CONFIG.desk.width, dh = CONFIG.desk.height;
+    const dw = State.deskW(), dh = State.deskH();
 
     State.orderedDesks().forEach((dk, i) => {
       const g = State.group(dk.gid);
       const node = el('div', { class: 'desk', 'data-kind': 'desk', 'data-id': dk.id });
+      const p = View.place(dk.x, dk.y, dw, dh);
       Object.assign(node.style, {
-        left: dk.x + 'px', top: dk.y + 'px', width: dw + 'px', height: dh + 'px',
+        left: p.x + 'px', top: p.y + 'px', width: dw + 'px', height: dh + 'px',
         borderColor: g ? g.color : 'var(--desk-edge)',
       });
 
@@ -177,6 +255,10 @@ const Render = {
     });
 
     this.applyEditVisuals();
+    // 편집 막대의 «책상 24 · 모둠 6» 딱지를 여기서 맞춥니다.
+    // 책상·모둠이 바뀌는 길(추가·삭제·되돌리기·프리셋·교실 다시 만들기…)은 여러 갈래인데
+    // 어느 길이든 마지막에는 여기를 지납니다. 길마다 부르면 반드시 하나를 빠뜨립니다.
+    if (typeof Editor !== 'undefined') Editor.refreshTally();
   },
 
   /* ============================================================
@@ -266,7 +348,7 @@ const Render = {
     this._avatarImgs = [];
     if (!State.data.isShuffled) return;
 
-    const dh = CONFIG.desk.height, dw = CONFIG.desk.width;
+    const dh = State.deskH(), dw = State.deskW();
     const students = State.data.students;
 
     State.orderedDesks().forEach(dk => {
@@ -277,9 +359,10 @@ const Render = {
       const idx = students.findIndex(s => s.id === sid);
 
       const card = el('div', { class: 'card', 'data-desk': dk.id });
+      const p = View.place(dk.x, dk.y, dw, dh);
       Object.assign(card.style, {
         width: dw + 'px', height: dh + 'px',
-        transform: `translate(${dk.x}px, ${dk.y}px)`,
+        transform: `translate(${p.x}px, ${p.y}px)`,
       });
       const inner = el('div', { class: 'card-in' });
       card.appendChild(inner);
@@ -292,7 +375,8 @@ const Render = {
       layer.appendChild(card);
       this.cards[dk.id] = { root: card, in: inner, egg, studentId: sid, index: idx };
 
-      if (State.data.revealed[dk.id]) this.showStudent(dk.id, false);
+      // «배치 관리» 모드에서는 아직 안 연 자리도 학생으로 보여 줍니다
+      if (State.data.revealed[dk.id] || Arrange.on) this.showStudent(dk.id, false);
     });
 
     this.seatNumbers();
@@ -315,6 +399,9 @@ const Render = {
     this._avatarImgs.push(img);
 
     const tag = el('div', { class: 'nametag', text: stu.name });
+    // 네 글자부터는 글씨를 줄여 «같은 칸» 안에 넣습니다
+    const fs = this.nametagFont(stu.name);
+    if (fs !== this.nametagSize()) tag.style.fontSize = fs + 'px';
     const dk = State.desk(deskId);
     const grp = dk ? State.group(dk.gid) : null;
     if (grp) tag.style.borderColor = grp.color;
@@ -358,8 +445,9 @@ const Render = {
   moveCard(deskId, x, y, ms) {
     const c = this.cards[deskId];
     if (!c) return;
+    const p = View.place(x, y, State.deskW(), State.deskH());
     c.root.style.transition = ms ? `transform ${ms}ms cubic-bezier(.4,.05,.35,1)` : 'none';
-    c.root.style.transform = `translate(${x}px, ${y}px)`;
+    c.root.style.transform = `translate(${p.x}px, ${p.y}px)`;
   },
 
   /* ---------------- 프레임 애니메이션 이펙트 ---------------- */
@@ -383,7 +471,9 @@ const Render = {
 
   /** 책상 한가운데 좌표 */
   deskCenter(dk) {
-    return { x: dk.x + CONFIG.desk.width / 2, y: dk.y + CONFIG.desk.height / 2 };
+    const w = State.deskW(), h = State.deskH();
+    const p = View.place(dk.x, dk.y, w, h);
+    return { x: p.x + w / 2, y: p.y + h / 2 };
   },
 
   /* ---------------- 캐릭터 두 프레임 번갈아 보이기 ---------------- */

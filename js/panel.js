@@ -3,9 +3,12 @@
 
 const Panel = {
 
+  /* ⚠️ «설정» 버튼은 켜져도 노랗게 바꾸지 않습니다.
+     열면 패널이 그 버튼을 곧바로 덮어서 보이지도 않는데,
+     닫는 찰나에만 노랗게 번쩍여서 오히려 눈에 거슬립니다.
+     (「교실 편집」·「배치 관리」 는 화면이 그대로 보이므로 켜진 표시를 합니다) */
   open(tab) {
     $('#panel').classList.remove('hidden');
-    $('#btnPanel').classList.add('active');
     if (tab) this.showTab(tab);
     this.syncFromState();
     Sound.play('page');
@@ -13,7 +16,6 @@ const Panel = {
 
   close() {
     $('#panel').classList.add('hidden');
-    $('#btnPanel').classList.remove('active');
     // 미리 보기를 켠 채 수업에 들어가면 학생이 알아챌 수 있으므로 반드시 끕니다
     if (Secret.preview) Secret.setPreview(false);
     Sound.play('page');
@@ -69,6 +71,22 @@ const Panel = {
     if (!State.data.students.length) {
       box.appendChild(el('span', { class: 'hint', text: '아직 입력된 학생이 없습니다.' }));
     }
+    this.refreshSexTally();
+  },
+
+  /** 이름표 옆의 «남 12 · 여 13 (모두 25명)» — 누를 때마다 저절로 다시 셉니다 */
+  refreshSexTally() {
+    const node = $('#sexTally');
+    if (!node) return;
+    const st = State.data.students;
+    node.innerHTML = '';
+    if (!st.length) return;
+    const g = st.filter(s => s.sex === 'g').length;
+    const b = st.length - g;
+    node.appendChild(el('b', { class: 'b', text: `남 ${b}` }));
+    node.appendChild(el('span', { text: ' · ' }));
+    node.appendChild(el('b', { class: 'g', text: `여 ${g}` }));
+    node.appendChild(el('span', { class: 'all', text: `  (모두 ${st.length}명)` }));
   },
 
   /** 명단 글상자의 내용을 실제 학생 목록으로 바꿉니다 */
@@ -249,6 +267,7 @@ const Panel = {
       done = `모둠 없이 책상 ${n}개로 새로 만들었습니다`;
     }
 
+    History.push();   // 큰 변화라 되돌릴 수 있게 한 장 찍어 둡니다
     d.board = built.board;
     d.lockers = built.lockers;
     d.groups = built.groups;
@@ -276,8 +295,24 @@ const Panel = {
 
   applyRoomSize() {
     const d = State.data;
-    d.room.w = clamp(parseInt($('#inRoomW').value, 10) || d.room.w, 400, 4000);
-    d.room.h = clamp(parseInt($('#inRoomH').value, 10) || d.room.h, 400, 4000);
+    // 3000 까지 (v1.17.0). 처음엔 8000 까지 열었다가 «너무 크면 의미가 없다» 는 판단으로 내렸습니다 —
+    // 기본 교실(1880×1000)의 1.6배 폭 · 3배 높이면 «구역을 나눠 배치» 하기에 충분하고,
+    // 그 이상은 25% 로 줄여 놔도 한 화면에 안 들어와 오히려 쓰기가 나빠집니다.
+    const MIN = 400, MAX = 3000;
+    const before = [d.room.w, d.room.h];
+    d.room.w = clamp(parseInt($('#inRoomW').value, 10) || d.room.w, MIN, MAX);
+    d.room.h = clamp(parseInt($('#inRoomH').value, 10) || d.room.h, MIN, MAX);
+
+    // ★ 잘라 낸 값을 «칸에도» 다시 적어 줍니다.
+    //   안 그러면 99999 라고 적힌 채 교실만 3000 이 되어, 다음에 열어 볼 때
+    //   «3000 인데 왜 99999 라고 써 있지» 가 됩니다. 눈에 보이는 것과 실제가 달라지면 안 됩니다.
+    const over = String(parseInt($('#inRoomW').value, 10)) !== String(d.room.w)
+              || String(parseInt($('#inRoomH').value, 10)) !== String(d.room.h);
+    $('#inRoomW').value = d.room.w;
+    $('#inRoomH').value = d.room.h;
+    if (over) toast(`교실 크기는 ${MIN} ~ ${MAX} 까지입니다`);
+
+    if (before[0] === d.room.w && before[1] === d.room.h) return;
     Render.all();
     State.save();
   },
@@ -288,8 +323,11 @@ const Panel = {
     r.onload = () => {
       try {
         State.importText(String(r.result));
+        if (Arrange.on) Arrange.exit();
         Render.all();
         this.syncFromState();
+        Layouts.render();
+        Arrange.refresh();
         Sound.setOn(State.data.settings.sound);
         Sound.setMaster(State.data.settings.volume);
         toast('설정을 불러왔습니다');
@@ -303,9 +341,12 @@ const Panel = {
 
   wipe() {
     if (!confirm('학생 명단과 자리 배치를 모두 지우고 처음 상태로 되돌립니다.\n정말 진행할까요?')) return;
+    if (Arrange.on) Arrange.exit();
     State.wipe();
     Render.all();
     this.syncFromState();
+    Layouts.render();
+    Arrange.refresh();
     toast('처음 상태로 되돌렸습니다');
   },
 };

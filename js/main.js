@@ -11,6 +11,52 @@ const View = {
   panY: 0,
 
   /* ============================================================
+     교실 뒤집기 (180°) — 학생 시점 ↔ 교사 시점
+     ------------------------------------------------------------
+     평소 화면은 **학생 시점**입니다. 아이들이 교실 TV 를 보면서
+     «내 자리가 어디지?» 를 찾아야 하니, 칠판이 위에 있는 그림이 맞습니다.
+
+     그런데 선생님은 교실 뒤에서 아이들을 마주 보고 서 있습니다.
+     그때는 화면과 실제 교실이 좌우·앞뒤가 반대라 한눈에 안 들어옵니다.
+     그래서 «교실 뒤집기» 를 누르면 **선생님이 보는 방향**으로 돌려 줍니다.
+
+     ★ 화면을 통째로 rotate(180deg) 하지 않습니다.
+       그러면 이름·번호·캐릭터까지 거꾸로 서서 읽을 수가 없습니다.
+       대신 **놓이는 자리(좌표)만 뒤집어 다시 그립니다.**
+       덕분에 글씨는 똑바로 서 있고 픽셀 그림도 그대로입니다.
+
+     ⚠️ 저장하지 않습니다. «지금 잠깐 보는 시점» 이지 교실 설정이 아니라서,
+        다음에 프로그램을 켰을 때 뒤집힌 채로 뜨면 오히려 당황합니다.
+     ============================================================ */
+  flipped: false,
+
+  /**
+   * 교실 안의 논리 좌표 → 화면에 실제로 놓을 자리.
+   * 뒤집지 않았으면 그대로 돌려줍니다.
+   *
+   * @param w,h  그 물건의 크기. 사각형은 «왼쪽 위 모서리» 로 놓이므로,
+   *             뒤집으면 반대쪽 모서리가 기준이 되어 크기만큼 빼 줘야 합니다.
+   *             점(크기 없음)이면 0 을 넘기거나 생략하세요.
+   */
+  place(x, y, w, h) {
+    if (!this.flipped) return { x: x, y: y };
+    const r = State.data.room;
+    return { x: r.w - x - (w || 0), y: r.h - y - (h || 0) };
+  },
+
+  toggleFlip() {
+    this.flipped = !this.flipped;
+    document.body.classList.toggle('flipped', this.flipped);
+    $('#btnFlip').classList.toggle('active', this.flipped);
+    Render.all();
+    // 편집 중이었다면 골라 둔 것의 표시를 되살립니다 (다시 그리면서 지워집니다)
+    if (Editor.mode) Editor.select(Editor.sel);
+    Sound.play('click');
+    banner(this.flipped ? '교사 시점 — 아이들을 마주 본 방향입니다'
+                        : '학생 시점 — 아이들이 TV 로 보는 방향입니다', 2600);
+  },
+
+  /* ============================================================
      안전한 배율만 쓰기
      ------------------------------------------------------------
      픽셀 그림은 '원본 1픽셀 = 화면 정수 칸' 일 때만 반듯하게 나옵니다.
@@ -46,7 +92,22 @@ const View = {
     return Math.min(this.snapDown(raw * 0.995), cap);
   },
 
+  /**
+   * 위쪽 막대(툴바·편집바)의 실제 높이를 재서 교실 화면 위치에 반영합니다.
+   * 화면이 좁아 버튼이 두 줄로 접히면 높이가 달라지는데,
+   * 예전처럼 60px·110px 로 못 박아 두면 그만큼 교실이 가려집니다.
+   */
+  syncBars() {
+    const bar = $('#toolbar'), eb = $('#editbar');
+    const root = document.documentElement.style;
+    root.setProperty('--toolbar-h', (bar ? bar.offsetHeight : 60) + 'px');
+    if (eb && !eb.classList.contains('hidden')) {
+      root.setProperty('--editbar-h', eb.offsetHeight + 'px');
+    }
+  },
+
   applyZoom() {
+    this.syncBars();   // 막대 높이가 먼저 정해져야 화면에 맞추는 배율이 맞습니다
     if (this.auto) { this.zoom = this.fitZoom(); this.panX = this.panY = 0; }
     $('#stage').style.transform =
       `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
@@ -144,6 +205,7 @@ const View = {
     this.auto = !!keepAuto;
     this.zoom = this.snapDown(clamp(z, CONFIG.view.minZoom, CONFIG.view.maxZoom) + this.step() / 2);
     this.applyZoom();
+    this.remember();
   },
 
   /** 확대(+1) · 축소(-1). 안전 배율 계단을 한 칸씩 오르내립니다 */
@@ -151,14 +213,78 @@ const View = {
     this.auto = false;
     this.zoom = this.stepZoom(dir > 0 ? 1 : -1);
     this.applyZoom();
+    this.remember();
   },
 
-  fit() { this.auto = true; this.applyZoom(); toast('화면에 맞췄습니다'); },
+  fit() { this.auto = true; this.applyZoom(); this.remember(); toast('화면에 맞췄습니다'); },
+
+  /* ============================================================
+     «마지막으로 보고 있던 자리» 기억하기 (v1.17.0)
+     ------------------------------------------------------------
+     교실을 운동장만큼 넓게 잡고 한쪽 구석만 보며 쓰는 경우가 있습니다.
+     그때 켤 때마다 «화면에 맞추기» 로 돌아가면 매번 다시 찾아가야 합니다.
+
+     ★ 끌고 있는 «도중» 에는 부르지 않습니다 — 마우스가 움직일 때마다
+       저장이 돌면 헛일입니다. 손을 뗄 때·배율을 바꿀 때만 적어 둡니다.
+     ⚠️ 뒤집기(flipped)는 여기 넣지 않습니다. «지금 잠깐 보는 시점» 이라
+       다음에 켰을 때 뒤집힌 채로 뜨면 오히려 당황합니다.
+     ============================================================ */
+  remember() {
+    const st = State.data.settings;
+    if (!st) return;
+    st.view = { auto: !!this.auto, zoom: this.zoom, panX: this.panX, panY: this.panY };
+    State.save();
+  },
+
+  /**
+   * 켤 때 그 자리로 되돌립니다. Render.all() «전» 에 부릅니다
+   * (Render.all() 끝에서 applyZoom() 이 이 값을 화면에 씁니다).
+   */
+  restore() {
+    const v = (State.data.settings || {}).view;
+    if (!v || v.auto !== false) { this.auto = true; return; }
+    this.auto = false;
+    this.zoom = clamp(+v.zoom || 1, CONFIG.view.minZoom, CONFIG.view.maxZoom);
+    this.panX = +v.panX || 0;
+    this.panY = +v.panY || 0;
+  },
+
+  /**
+   * 되살린 자리에 교실이 «아예 안 보이면» 화면에 맞추기로 되돌립니다.
+   * (그 사이 교실을 줄였을 때 빈 화면이 뜨면 고장으로 보입니다)
+   *
+   * ★ 반드시 «그려 놓고 재서» 판단합니다. Render.all() «뒤» 에 부릅니다.
+   *
+   * 🩸 v1.17.0 에서 이걸 «계산» 으로 때웠다가 틀렸습니다 —
+   *    `#viewport` 는 가운데 정렬이라, 교실이 화면보다 크면 무대가 **음수 자리에서 시작**합니다.
+   *    (3000 교실 · 133% → 무대가 left:-1200 에서 시작) 그래서 «왼쪽 위 구석을 보려고
+   *    오른쪽으로 끈» 평범한 자리(panX=+1200)가 «화면 밖» 으로 잘못 계산돼,
+   *    껐다 켜면 배율·위치가 리셋됐습니다. 67% 에서는 필요한 이동이 작아 안 걸렸습니다.
+   *    📌 교훈: **화면에 실제로 어디 놓이는지는 «재는» 것이지 «계산하는» 것이 아니다.**
+   */
+  ensureVisible() {
+    if (this.auto) return;
+    const vp = $('#viewport').getBoundingClientRect();
+    const st = $('#stage').getBoundingClientRect();
+    const w = Math.min(vp.right, st.right) - Math.max(vp.left, st.left);
+    const h = Math.min(vp.bottom, st.bottom) - Math.max(vp.top, st.top);
+    if (w > 0 && h > 0) return;          // 한 귀퉁이라도 보이면 그대로 둡니다
+    this.auto = true;
+    this.panX = this.panY = 0;
+    this.applyZoom();
+    this.remember();
+  },
 
   /** 화면 좌표 → 교실 안의 좌표 */
   toStage(clientX, clientY) {
     const r = $('#stage').getBoundingClientRect();
-    return { x: (clientX - r.left) / this.zoom, y: (clientY - r.top) / this.zoom };
+    const x = (clientX - r.left) / this.zoom;
+    const y = (clientY - r.top) / this.zoom;
+    if (!this.flipped) return { x: x, y: y };
+    // 뒤집힌 상태에서는 화면의 오른쪽 아래가 교실의 왼쪽 위입니다.
+    // 여기서 되돌려 놓으면 끌기 계산(dx·dy)은 아무것도 안 고쳐도 맞아떨어집니다.
+    const rm = State.data.room;
+    return { x: rm.w - x, y: rm.h - y };
   },
 };
 
@@ -296,7 +422,15 @@ const StartCover = {
 function boot() {
   $('#tbVer').textContent = 'v' + APP_VERSION.number;
   document.documentElement.style.setProperty(
-    '--nametag-size', (CONFIG.nametag && CONFIG.nametag.fontSize || 28) + 'px');
+    '--nametag-size', Render.nametagSize() + 'px');
+  document.documentElement.style.setProperty('--nametag-w', Render.nametagWidth() + 'px');
+
+  /* 글꼴은 늦게 내려옵니다. 그 전에 잰 글자 폭으로 이름표 칸을 정하면
+     («가나다» 가 84px 로 나왔다가 실제로는 99px) 칸이 좁아 글씨가 줄어듭니다.
+     다 받은 뒤 한 번 다시 잽니다. */
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => { Render._cw = null; Render.all(); }).catch(() => {});
+  }
   const sn = CONFIG.seatNumber || {};
   document.documentElement.style.setProperty('--seatno-size', (sn.size || 40) + 'px');
   document.documentElement.style.setProperty('--seatno-font', (sn.fontSize || 24) + 'px');
@@ -308,9 +442,15 @@ function boot() {
   Render.startAvatarTicker();
 
   document.body.classList.toggle('show-grid', CONFIG.view.showGridAlways);
+  View.restore();     // 마지막으로 보고 있던 자리로 (Render.all() 이 화면에 씁니다)
   Render.all();
+  View.ensureVisible();   // 그 자리에 교실이 아예 안 보이면 화면에 맞추기로 (그린 «뒤» 에 재서 판단)
   Panel.syncFromState();
   Secret.init();
+  History.refresh();
+  Layouts.render();
+  Arrange.refresh();
+  Arrange.initPanelDrag();
   wireEvents();
   StartCover.init();
 
@@ -322,13 +462,18 @@ function boot() {
 function wireEvents() {
 
   /* ---------- 툴바 ---------- */
-  // 이 세 개는 누른 직후 바로 자기 소리(섞는 소리·알 깨지는 소리)가 나므로
-  // 버튼 클릭음을 내면 겹쳐서 지저분해집니다. 그래서 클릭음을 내지 않습니다.
+  /* ★ 이 다섯 개(핵심 상자 안의 버튼들)는 «버튼 소리를 내지 않습니다».
+     누른 직후 바로 자기 연출 소리(섞는 소리·알 깨지는 소리)가 이어지므로
+     클릭음을 얹으면 겹쳐서 지저분합니다.
+     나머지 버튼은 전부 'click', 설정·알림창은 'page' — 규칙은 config.js 에 적어 뒀습니다. */
   $('#btnShuffle').onclick    = () => Shuffle.run();
   $('#btnRevealSeq').onclick  = () => Shuffle.revealAll('seq');    // 앞자리부터 차례대로
   $('#btnRevealRand').onclick = () => Shuffle.revealAll('random'); // 뒤죽박죽 순서로
   $('#btnRevealNow').onclick  = () => Shuffle.revealNow();
   $('#btnReset').onclick     = () => Shuffle.reset();
+  $('#btnFlip').onclick      = () => View.toggleFlip();
+  $('#btnArrange').onclick   = () => Arrange.toggle();
+  $('#spFold').onclick       = () => Arrange.toggleFold();
   $('#btnEdit').onclick      = () => { Sound.play('click'); Editor.toggle(); };
   $('#btnPanel').onclick     = () => Panel.toggle();
   $('#btnZoomIn').onclick    = () => View.zoomBy(+1);
@@ -338,14 +483,23 @@ function wireEvents() {
 
   /* ---------- 편집 서브 툴바 ---------- */
   $$('.eb-mode').forEach(b => b.onclick = () => { Sound.play('click'); Editor.enter(b.dataset.editmode); });
-  $('#btnAddGroup').onclick    = () => Editor.addGroup();
-  // 남·여 자리 붓 (같은 버튼을 다시 누르면 꺼집니다)
+  // 편집 막대의 버튼도 «버튼» 이므로 전부 같은 클릭음을 냅니다.
+  // (누르는 «순간» 에 나야 하므로 Editor 안이 아니라 여기에 답니다 —
+  //  Editor 의 함수는 단축키나 다른 코드에서도 불립니다)
+  const clicky = (sel, fn) => $(sel).onclick = () => { Sound.play('click'); fn(); };
+  clicky('#btnAddGroup',  () => Editor.addGroup());
+  clicky('#btnSexClear',  () => Editor.clearSex());
+  clicky('#btnPresetClear', () => Editor.clearPreset());
+  clicky('#btnToPreset',  () => Layouts.toPreset());
+  clicky('#btnAddDesk',   () => Editor.addDesk());
+  clicky('#btnAddLocker', () => Editor.addLocker());
+  clicky('#btnDelete',    () => Editor.deleteSelected());
+  // 책상 크기 1·2·3 (소리는 setDeskSize 안에서 — 같은 단계를 다시 누르면 아무 일도 안 합니다)
+  $$('.eb-dsize').forEach(b => b.onclick = () => Editor.setDeskSize(b.dataset.dsize));
+  // 남·여 자리 붓 (같은 버튼을 다시 누르면 꺼집니다) — setBrush 안에서 소리를 냅니다
   $$('.eb-brush').forEach(b => b.onclick = () => Editor.setBrush(b.dataset.brush));
-  $('#btnSexClear').onclick    = () => Editor.clearSex();
-  $('#btnAddDesk').onclick     = () => Editor.addDesk();
-  $('#btnAddLocker').onclick   = () => Editor.addLocker();
-  $('#btnDelete').onclick      = () => Editor.deleteSelected();
-  $('#btnAutoArrange').onclick = () => Editor.relayout();
+  $('#btnUndo').onclick        = () => History.undo();
+  $('#btnRedo').onclick        = () => History.redo();
 
   /* ---------- 설정 패널 ---------- */
   $('#btnPanelClose').onclick = () => Panel.close();
@@ -383,7 +537,7 @@ function wireEvents() {
     e.target.value = '';
   };
   $('#btnWipe').onclick = () => Panel.wipe();
-  $('#pickerClose').onclick = () => Picker.close();
+  $('#pickerClose').onclick = () => { Sound.play('click'); Picker.close(); };
 
   /* ---------- 화면 한가운데 알림 ---------- */
   $('#alertClose').onclick = () => Alert.close();
@@ -395,6 +549,8 @@ function wireEvents() {
      책상·모둠을 잡지 않았다면 화면을 옮길 수 있습니다.
      교실 바깥 여백에서도 끌 수 있도록 viewport 에 답니다. */
   $('#viewport').addEventListener('pointerdown', (e) => {
+    // «배치 관리» 모드에서 학생을 잡았으면 그쪽이 처리합니다
+    if (Arrange.onPointerDown(e)) return;
     // 편집 중이고 책상·모둠·칠판·사물함을 잡았으면 그쪽이 처리합니다
     if (Editor.onPointerDown(e)) return;
 
@@ -406,8 +562,12 @@ function wireEvents() {
     Pan.start(e);
   });
 
-  window.addEventListener('pointermove', (e) => { Editor.onPointerMove(e); Pan.move(e); });
-  window.addEventListener('pointerup',   () => { Editor.onPointerUp(); Pan.end(); });
+  window.addEventListener('pointermove', (e) => {
+    Arrange.onPointerMove(e); Editor.onPointerMove(e); Pan.move(e);
+  });
+  window.addEventListener('pointerup', (e) => {
+    Arrange.onPointerUp(e); Editor.onPointerUp(); Pan.end();
+  });
 
   // 휠로 확대/축소
   $('#viewport').addEventListener('wheel', (e) => {
@@ -434,12 +594,26 @@ function wireEvents() {
     if (CONFIG.secret.hotkey && e.ctrlKey && e.shiftKey && (e.key === 'M' || e.key === 'm')) {
       e.preventDefault(); Secret.toggle(); return;
     }
+
+    /* 되돌리기 — 교실 편집 중에만 듣습니다.
+       편집이 아닐 때도 되면 «뭐가 되돌아간 건지» 알 수 없어 오히려 위험합니다.
+       (맥의 Cmd 키도 함께 받습니다) */
+    const mod = e.ctrlKey || e.metaKey;
+    if (Editor.mode && mod && (e.key === 'z' || e.key === 'Z' || e.key === 'ㅋ')) {
+      e.preventDefault();
+      e.shiftKey ? History.redo() : History.undo();
+      return;
+    }
+    if (Editor.mode && mod && (e.key === 'y' || e.key === 'Y' || e.key === 'ㅛ')) {
+      e.preventDefault(); History.redo(); return;
+    }
     if (typing) return;
 
     switch (e.key) {
       case 'Escape':
         if (Alert.isOpen()) Alert.close();
         else if (!$('#picker').classList.contains('hidden')) Picker.close();
+        else if (Arrange.on) Arrange.exit();
         else if (Editor.mode) Editor.exit();
         else if (!$('#panel').classList.contains('hidden')) Panel.close();
         break;
@@ -448,7 +622,9 @@ function wireEvents() {
       case 'w': case 'W': case 'ㅈ': Shuffle.revealAll('random'); break;
       case 'd': case 'D': case 'ㅇ': Shuffle.revealNow(); break;
       case 'r': case 'R': case 'ㄱ': Shuffle.reset(); break;
+      case 't': case 'T': case 'ㅅ': View.toggleFlip(); break;
       case 'e': case 'E': case 'ㄷ': Editor.toggle(); break;
+      case 'c': case 'C': case 'ㅊ': Arrange.toggle(); break;
       case 'f': case 'F': case 'ㄹ': toggleFullscreen(); break;
       case '+': case '=': View.zoomBy(+1); break;
       case '-': case '_': View.zoomBy(-1); break;
@@ -481,7 +657,11 @@ const Pan = {
   },
   end() {
     this.on = false;
-    if (this._grabbed) { this._grabbed = false; document.body.classList.remove('panning'); }
+    if (this._grabbed) {
+      this._grabbed = false;
+      document.body.classList.remove('panning');
+      View.remember();          // 끌기가 «끝났을 때» 만 적어 둡니다
+    }
   },
 };
 

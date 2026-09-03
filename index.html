@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="theme-color" content="#2c2434">
 <meta name="description" content="초등학교 교실용 자리 바꾸기 프로그램. 알을 깨서 한 명씩 자리를 공개합니다.">
-<link rel="manifest" href="manifest.webmanifest?v=1.9.1">
-<link rel="apple-touch-icon" href="icons/icon-180.png?v=1.9.1">
+<link rel="manifest" href="manifest.webmanifest?v=1.17.1">
+<link rel="apple-touch-icon" href="icons/icon-180.png?v=1.17.1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="자리 바꾸기">
 <title>우리 반 자리 바꾸기</title>
-<link rel="icon" href="assets/sprites/desk-icon.png?v=1.9.1">
-<link rel="stylesheet" href="css/fonts.css?v=1.9.1">
-<link rel="stylesheet" href="css/style.css?v=1.9.1">
+<link rel="icon" href="assets/sprites/desk-icon.png?v=1.17.1">
+<link rel="stylesheet" href="css/fonts.css?v=1.17.1">
+<link rel="stylesheet" href="css/style.css?v=1.17.1">
 </head>
 <body>
 
@@ -21,9 +21,9 @@
 <div id="startCover">
   <div class="sc-box">
     <div class="sc-cast">
-      <img src="assets/sprites/student/boy1-3.png?v=1.9.1" alt="">
-      <img src="assets/sprites/egg/01.png?v=1.9.1" class="sc-egg" alt="">
-      <img src="assets/sprites/student/girl1-1.png?v=1.9.1" alt="">
+      <img src="assets/sprites/student/boy1-3.png?v=1.17.1" alt="">
+      <img src="assets/sprites/egg/01.png?v=1.17.1" class="sc-egg" alt="">
+      <img src="assets/sprites/student/girl1-1.png?v=1.17.1" alt="">
     </div>
     <div class="sc-title">우리 반 자리 바꾸기</div>
     <div class="sc-ver" id="scVer"></div>
@@ -36,17 +36,23 @@
 <!-- ===================== 상단 툴바 ===================== -->
 <header id="toolbar">
   <div class="tb-left">
-    <img class="tb-icon" src="assets/sprites/desk-icon.png?v=1.9.1" alt="">
+    <img class="tb-icon" src="assets/sprites/desk-icon.png?v=1.17.1" alt="">
     <span class="tb-title">우리 반 자리 바꾸기</span>
     <span class="tb-ver" id="tbVer"></span>
   </div>
 
   <div class="tb-center">
-    <button id="btnShuffle" class="btn btn-main">자리 섞기</button>
-    <button id="btnRevealSeq" class="btn">순서대로 공개</button>
-    <button id="btnRevealRand" class="btn">랜덤 공개</button>
-    <button id="btnRevealNow" class="btn">한 번에 공개</button>
-    <button id="btnReset" class="btn btn-ghost">다시 덮기</button>
+    <!-- 수업 중 실제로 누르는 «핵심» 버튼들. 상자로 묶어 눈에 먼저 들어오게 합니다. -->
+    <div class="tb-core">
+      <button id="btnShuffle" class="btn btn-main">자리 섞기</button>
+      <button id="btnRevealSeq" class="btn">순서대로 공개</button>
+      <button id="btnRevealRand" class="btn">랜덤 공개</button>
+      <button id="btnRevealNow" class="btn">한 번에 공개</button>
+      <button id="btnReset" class="btn btn-ghost">다시 덮기</button>
+    </div>
+
+    <button id="btnFlip" class="btn btn-sm btn-ghost"
+            title="교실을 180° 돌립니다 — 선생님이 아이들을 마주 본 방향 (T)">⇅ 뒤집기</button>
   </div>
 
   <div class="tb-right">
@@ -56,6 +62,7 @@
       <button id="btnZoomIn" class="btn btn-icon" title="확대">＋</button>
       <button id="btnZoomFit" class="btn btn-icon" title="화면에 맞추기">⤢</button>
     </div>
+    <button id="btnArrange" class="btn" title="지금 앉은 자리를 보고 고치거나, 배치를 저장·불러옵니다">배치 관리</button>
     <button id="btnEdit" class="btn">교실 편집</button>
     <button id="btnPanel" class="btn">설정</button>
     <button id="btnFull" class="btn btn-icon" title="전체 화면 (F11)">⛶</button>
@@ -77,8 +84,23 @@
     <button id="btnAddDesk" class="btn btn-sm">책상</button>
     <button id="btnAddLocker" class="btn btn-sm">사물함</button>
     <span class="eb-sep"></span>
-    <button id="btnDelete" class="btn btn-sm btn-danger">선택한 것 삭제</button>
-    <button id="btnAutoArrange" class="btn btn-sm">처음 배치로 되돌리기</button>
+    <!-- 멀리서 이름이 잘 안 보일 때 키웁니다. 알·캐릭터 크기는 그대로입니다. -->
+    <span class="eb-label">책상 크기</span>
+    <button class="btn btn-sm eb-dsize" data-dsize="1" title="기본 크기">1</button>
+    <button class="btn btn-sm eb-dsize" data-dsize="2" title="조금 크게">2</button>
+    <button class="btn btn-sm eb-dsize" data-dsize="3" title="크게 — 멀리서도 잘 보입니다">3</button>
+    <span class="eb-sep"></span>
+    <button id="btnDelete" class="btn btn-sm btn-danger"
+            title="고른 책상·모둠·사물함을 지웁니다 (Delete 키)">삭제</button>
+  </div>
+
+  <!-- 되돌리기 — 편집 중에는 어느 화면에서나 씁니다 -->
+  <div class="eb-group">
+    <button id="btnUndo" class="btn btn-sm" title="되돌리기 (Ctrl+Z)">↩</button>
+    <button id="btnRedo" class="btn btn-sm" title="다시 하기 (Ctrl+Shift+Z)">↪</button>
+    <!-- 「책상 24 · 모둠 6」 («자리 배치» 에서만). 다른 모드의 요약과 «같은 자리·같은 모양» 입니다 —
+         저마다 그 줄의 마지막 버튼에 붙어 섭니다. -->
+    <span class="eb-count hidden" id="ebTally"></span>
   </div>
 
   <!-- 남·여 자리 정하기: 아래 버튼을 하나 골라 둔 채로 책상을 누릅니다 -->
@@ -92,8 +114,30 @@
     <span class="eb-count" id="ebSexCount"></span>
   </div>
 
+  <!-- 사전 자리 정하기: 미리 앉혀 둔 학생을 한 번에 비웁니다 -->
+  <div class="eb-group hidden" id="ebPresetTools">
+    <button id="btnPresetClear" class="btn btn-sm"
+            title="미리 정해 둔 자리를 모두 비웁니다">전부 해제</button>
+    <span class="eb-count" id="ebPresetCount"></span>
+  </div>
+
   <div class="eb-hint" id="ebHint">
     책상을 끌어서 옮기세요. 모둠 이름표를 끌면 모둠 전체가 움직입니다.
+  </div>
+</div>
+
+<!-- 배치 목록 — «배치 관리» 모드에서 뜹니다. 여기서 저장·불러오기를 모두 합니다.
+     제목을 끌면 창이 옮겨집니다. -->
+<div id="slotPanel" class="hidden">
+  <div class="sp-head" id="spHead">
+    <span class="sp-name">배치 목록</span>
+    <button id="spFold" class="btn btn-icon" title="접기 / 펴기">▾</button>
+  </div>
+  <div class="sp-body" id="slotList"></div>
+  <!-- 목록 «밖» 에 둡니다 — 목록은 스크롤되므로 안에 넣으면 밀려 올라가 안 보입니다 -->
+  <div class="sp-foot">
+    <button id="btnToPreset" class="btn btn-sm"
+            title="지금 화면에 떠 있는 이 자리를 «사전 자리» 로 넣습니다">사전 자리에 저장</button>
   </div>
 </div>
 
@@ -150,6 +194,8 @@
           <div class="row">
             <button id="btnAllBoy" class="btn btn-sm">전부 남</button>
             <button id="btnAllGirl" class="btn btn-sm">전부 여</button>
+            <!-- 이름을 누를 때마다 저절로 다시 셉니다 (Panel.refreshSexTally) -->
+            <span id="sexTally" class="sex-tally"></span>
           </div>
         </div>
       </div>
@@ -201,15 +247,19 @@
         <div class="sec-body">
           <div class="field">
             <label>가로</label>
-            <input type="number" id="inRoomW" min="400" max="4000" step="20">
+            <input type="number" id="inRoomW" min="400" max="3000" step="20">
           </div>
           <div class="field">
             <label>세로</label>
-            <input type="number" id="inRoomH" min="400" max="4000" step="20">
+            <input type="number" id="inRoomH" min="400" max="3000" step="20">
           </div>
           <div class="row"><button id="btnRoomDefault" class="btn btn-sm">기본 크기로 되돌리기</button></div>
           <p class="hint">기본 크기는 교실 TV(1920×1080)를 전체 화면으로 썼을 때
-            100% 배율에서 화면이 거의 꽉 차도록 맞춘 값입니다.</p>
+            100% 배율에서 화면이 거의 꽉 차도록 맞춘 값입니다.<br>
+            <b>400 ~ 3000</b> 까지 됩니다. 크게 잡으면 마당처럼 넓어져 구역을 나눠 배치할 수 있고,
+            한 화면에 다 안 들어오면 <b>빈 바닥을 끌어서</b> 옮겨 다니며 배치합니다.
+            (<code>−</code> 로 줄여 전체를 보고, <code>+</code> 로 키워 그 자리를 손봅니다.
+            <b>보고 있던 자리는 그대로 기억</b>되어 다음에 켜도 유지됩니다)</p>
         </div>
       </div>
 
@@ -363,19 +413,22 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="version.js?v=1.9.1"></script>
-<script src="config.js?v=1.9.1"></script>
-<script src="js/util.js?v=1.9.1"></script>
-<script src="js/audio.js?v=1.9.1"></script>
-<script src="js/state.js?v=1.9.1"></script>
-<script src="js/seats.js?v=1.9.1"></script>
-<script src="js/layout.js?v=1.9.1"></script>
-<script src="js/render.js?v=1.9.1"></script>
-<script src="js/editor.js?v=1.9.1"></script>
-<script src="js/shuffle.js?v=1.9.1"></script>
-<script src="js/panel.js?v=1.9.1"></script>
-<script src="js/presets.js?v=1.9.1"></script>
-<script src="js/main.js?v=1.9.1"></script>
+<script src="version.js?v=1.17.1"></script>
+<script src="config.js?v=1.17.1"></script>
+<script src="js/util.js?v=1.17.1"></script>
+<script src="js/audio.js?v=1.17.1"></script>
+<script src="js/state.js?v=1.17.1"></script>
+<script src="js/seats.js?v=1.17.1"></script>
+<script src="js/history.js?v=1.17.1"></script>
+<script src="js/layouts.js?v=1.17.1"></script>
+<script src="js/arrange.js?v=1.17.1"></script>
+<script src="js/layout.js?v=1.17.1"></script>
+<script src="js/render.js?v=1.17.1"></script>
+<script src="js/editor.js?v=1.17.1"></script>
+<script src="js/shuffle.js?v=1.17.1"></script>
+<script src="js/panel.js?v=1.17.1"></script>
+<script src="js/presets.js?v=1.17.1"></script>
+<script src="js/main.js?v=1.17.1"></script>
 <script>
 /* 서비스 워커 등록 — 인터넷이 끊겨도 열리게 해 줍니다. 실패해도 프로그램은 그대로 돌아갑니다. */
 if ('serviceWorker' in navigator) {

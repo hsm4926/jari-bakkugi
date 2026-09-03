@@ -38,6 +38,7 @@ const Shuffle = {
     if (Seats.blockShuffle()) return;
 
     if (Editor.mode) Editor.exit();
+    if (Arrange.on) Arrange.exit(true);   // 조용히 — 핵심 5개는 버튼 소리를 내지 않습니다
 
     this.busy = true;
     document.body.classList.add('busy');
@@ -86,6 +87,7 @@ const Shuffle = {
     document.body.classList.remove('busy');
     State.save();
     Panel.refreshCounts();
+    Arrange.refresh();
   },
 
   /* ============================================================
@@ -124,6 +126,7 @@ const Shuffle = {
     State.save();
     this._pending--;
     this.checkAllRevealed();
+    Arrange.refresh();
   },
 
   /* ============================================================
@@ -181,20 +184,25 @@ const Shuffle = {
 
     State.save();
     this.checkAllRevealed();
+    Arrange.refresh();
   },
 
   reset() {
     const d = State.data;
     if (!d.isShuffled) return;
+    // ★ «배치 관리» 는 «모두 공개된 자리를 손보는» 모드라, 덮은 채로 켜져 있으면 말이 안 됩니다
+    //   (알만 보이는 화면에서 학생을 끌게 됩니다). 자리 섞기와 똑같이 먼저 끕니다.
+    //   조용히 끕니다 — 핵심 5개 버튼은 버튼 소리를 내지 않습니다.
+    if (Arrange.on) Arrange.exit(true);
     d.revealed = {};
     this._pending = 0;
     this._finished = false;
     this._revealToken++;      // 돌아가던 순차 공개가 있으면 여기서 멈춥니다
     Render.cards_();
     Render.setWobble(true);
-    Sound.play('page');
-    banner('다시 덮었습니다', 1800);
+    banner('다시 덮었습니다', 1800);   // 핵심 5개는 버튼 소리를 내지 않습니다
     State.save();
+    Arrange.refresh();
   },
 
   /* ============================================================
